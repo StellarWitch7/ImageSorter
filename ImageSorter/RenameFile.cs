@@ -13,8 +13,9 @@ namespace ImageSorter
 {
     public partial class RenameFile : Form
     {
-        public string FileName {get;set; }
+        public string FileName { get; set; }
         public string FileExtension { get; set; }
+        
         public RenameFile()
         {
             InitializeComponent();
@@ -29,13 +30,14 @@ namespace ImageSorter
 
         private void FileInput_TextChanged(object sender, EventArgs e)
         {
-            //only enable the button if the name is not emtpy and doesn't contain invalid characters
+            // only enable the button if the name is not empty and doesn't contain invalid characters
             if (FileInput.Text != "" || !MainFrm.IsNameInvalid(FileInput.Text))
                 OKButt.Enabled = true;
             else
                 OKButt.Enabled = false;
         }
-        //clears the filename
+        
+        // clears the filename
         private void clearbutt_Click(object sender, EventArgs e)
         {
             this.FileName = "";
@@ -50,7 +52,6 @@ namespace ImageSorter
 
         private void RenameFile_Load(object sender, EventArgs e)
         {
-
             ExtBox.Text = FileExtension;
         }
     }

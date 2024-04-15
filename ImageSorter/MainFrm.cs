@@ -13,35 +13,63 @@ namespace ImageSorter
 {
     public partial class MainFrm : Form
     {
-        //the program will try to look for this file for its settings
+        // the program will try to look for this file for its settings
         const string ConfigFileName = "ImageSorter.cfg";
-        //This character will separate keys and assigned folders 
-        //chosen because it is unlikely to occur as a keypress,
-        //looks like ":=" asignment operator and is actually
-        //a mathematical symbol (one of!) for assigning a variable.
+        // this character will separate keys and assigned folders 
+        // chosen because it is unlikely to occur as a keypress,
+        // looks like ":=" asignment operator and is actually
+        // a mathematical symbol (one of!) for assigning a variable.
         const char Separator = '≔';
-        //stores the file currently operated on
+        // stores the file currently operated on
         string CurrentPath;
-        //used for rename functionality, stores new filename that will be used in the target dir
+        // used for rename functionality, stores new filename that will be used in the target dir
         string NewFileName = "";
-        //used to store the current directory
+        // used to store the current directory
         DirectoryInfo CurrentDir;
-        //queue to progress through the folder
+        // queue to progress through the folder
         LinkedList<string> Todo;
-        //this is the dictionary that will hold all the keybindings
+        // this is the dictionary that will hold all the keybindings
         Dictionary<char, string> SubFolders;
-        //this will hold the Undo stack
+        // this will hold the Undo stack
         Stack<Tuple<string, string>> UndoStack;
-        //hardcoding the image extensions here for now.
-        string[] extensions = { ".png",".jpg",".gif",".jpeg",".webp" };
+        // hardcoding the image extensions here for now.
+        string[] extensions =
+        {
+            ".png",
+            ".jpg",
+            ".gif",
+            ".jpeg",
+            ".webp"
+        };
+        // has Mono been checked yet?
+        static bool checkedForMono = false;
+        // cache whether Mono is loaded
+        static bool isMono;
 
+        string nl
+        {
+            get
+            {
+                return IsMono() ? "\r\n" : "\n";
+            }
+        }
 
+        public static bool IsMono()
+        {
+            if (!checkedForMono)
+                isMono = Type.GetType("Mono.Runtime") != null;
+
+            checkedForMono = true;
+            return isMono;
+        }
+        
         public static bool IsNameInvalid(string s)
         {
             if (s.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0)
                 return true;
             return false;
         }
+        
         /// <summary>
         /// Tries to find a filename that would not collide with an existing one.
         /// </summary>
@@ -54,12 +82,12 @@ namespace ImageSorter
             string name = Path.GetFileNameWithoutExtension(filename);
             
             int counter = 2;
-            string candidatename = name + "_" + counter.ToString()+ext;
+            string candidatename = $"{name}_{counter.ToString()}{ext}";
 
             while (File.Exists(Path.Combine(folder, candidatename)))
             {
                 counter++;
-                candidatename = name + "_" + counter.ToString() + ext;
+                candidatename = $"{name}_{counter.ToString()}{ext}";
             }
 
             return candidatename;
@@ -74,50 +102,53 @@ namespace ImageSorter
         {
             List<string> result = new List<string>();
 
-            foreach(string ext in extensions)
+            foreach (string ext in extensions)
             {
-                result.AddRange(Directory.EnumerateFiles(path, "*" + ext, SearchOption.TopDirectoryOnly));
+                result.AddRange(Directory.EnumerateFiles(path, $"*{ext}", SearchOption.TopDirectoryOnly));
             }
+            
             return result;
         }
+        
         /// <summary>
         /// Refreshes the right-hand pane showing currently available keybinds
         /// </summary>
         void UpdateKeyBindList()
         {
             KeyBindList.Items.Clear();
-            foreach(KeyValuePair<char, string> kvp in SubFolders)
+            foreach (KeyValuePair<char, string> kvp in SubFolders)
             {
                 KeyBindList.Items.Add("<" + kvp.Key.ToString() + "> = " + kvp.Value);
             }
         }
+        
         /// <summary>
         /// Undoes a single file operation.
         /// </summary>
         void Undo()
         {
-            //do nothing if there are no undos available
+            // do nothing if there are no undos available
             if (UndoStack == null || UndoStack.Count == 0)
                 return;
 
-            //get the most recent operation
+            // get the most recent operation
             Tuple<string, string> UndoEntry = UndoStack.Pop();
-            //attempt to reverse the move
+            
+            // attempt to reverse the move
             try
             {
                 File.Move(UndoEntry.Item2, UndoEntry.Item1);
             }
-            //show an error message in case of failure
-            catch (Exception ex)
+            catch (Exception ex) // show an error message in case of failure
             {
-                MessageBox.Show("Undo failed!\r\n" + ex.Message, "File error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                //no point in doing anything else
-                return;
+                MessageBox.Show($"Undo failed!{nl}{ex.Message}", "File error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return; // no point in doing anything else
             }
+            
             FolderProgress.Value += 1;
-            //put the current file back into the queue
+            // put the current file back into the queue
             Todo.AddFirst(CurrentPath);
-            //put the recently undone file back into the queue and advance to it
+            // put the recently undone file back into the queue and advance to it
             Todo.AddFirst(UndoEntry.Item1);
             Advance();
         }
@@ -127,49 +158,50 @@ namespace ImageSorter
         /// </summary>
         void Advance()
         {
-            //exit if there's no queue
-            if(Todo==null)
-            {
+            // exit if there's no queue
+            if (Todo == null)
                 return;
-            }
-            //if the queue is empty, the folder is complete
-            if(Todo.Count<1)
+            
+            // if the queue is empty, the folder is complete
+            if (Todo.Count < 1)
             {
-                //clear the image preview
+                // clear the image preview
                 ImageContainer.Image = null;
-                //tell the user
+                // tell the user
                 MessageBox.Show("This folder has no more images.", "Done!", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 FolderProgress.Value = FolderProgress.Maximum;
-                //update the label
-                progresslabel.Text = FolderProgress.Maximum+"/" + FolderProgress.Maximum.ToString();
+                // update the label
+                progresslabel.Text = $"{FolderProgress.Maximum}/{FolderProgress.Maximum.ToString()}";
                 Todo = null;
                 return;
             }
-            //fetch the next item and update current and progress bar
+            
+            // fetch the next item and update current and progress bar
             string FilePath = Todo.First();
             Todo.RemoveFirst();
             CurrentPath = FilePath;
-            //reset rename function
+            // reset rename function
             NewFileName = "";
-            //update progress bar
+            // update progress bar
             FolderProgress.Value = FolderProgress.Maximum-(Todo.Count() + 1);
-            //update progress bar label
-            progresslabel.Text=(FolderProgress.Maximum - (Todo.Count())).ToString()+"/" + FolderProgress.Maximum.ToString();
-            //useful to display current path, maybe change it to a display box somewhere
+            // update progress bar label
+            progresslabel.Text=(FolderProgress.Maximum - (Todo.Count())).ToString() + "/" + FolderProgress.Maximum.ToString();
+            // useful to display current path, maybe change it to a display box somewhere
             this.Text = CurrentPath;
-            //try displaying the image
+            
+            // try displaying the image
             try
             {
-                //creating a temporary image from the file and then cloning it 
-                //releases the lock on the original file
+                // creating a temporary image from the file and then cloning it 
+                // releases the lock on the original file
                 Image tmp = new Bitmap(CurrentPath);
                 ImageContainer.Image = new Bitmap(tmp);
                 tmp.Dispose();
             }
             catch(Exception e)
             {
-                //show an error, it is still possible to operate on the file.
-                MessageBox.Show("Failed to load image.\r\n"+e.Message, "Image error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                // show an error, it is still possible to operate on the file.
+                MessageBox.Show($"Failed to load image.{nl}{e.Message}", "Image error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
         
@@ -179,23 +211,24 @@ namespace ImageSorter
             SubFolders = new Dictionary<char, string>();
             UpdateKeyBindList();
             UndoStack = new Stack<Tuple<string, string>>();
-            //align the label to the progress bar on form init
+            // align the label to the progress bar on form init
             progresslabel.Location = FolderProgress.Location;
             progresslabel.Size = FolderProgress.Size;
         }
-        //Select a folder to process
+        
+        // select a folder to process
         private void openFolderToolStripMenuItem_Click(object sender, EventArgs e)
         {
             FolderBrowserDialog dlg = new FolderBrowserDialog();
             DialogResult result = dlg.ShowDialog();
-            if(result== DialogResult.OK)
+            
+            if (result == DialogResult.OK)
             {
                 OpenFolder(dlg.SelectedPath);
                 Advance();
             }
-
-
         }
+        
         /// <summary>
         /// Try parsing a configuration line.
         /// </summary>
@@ -203,23 +236,28 @@ namespace ImageSorter
         /// <returns>true on success, false on faliure</returns>
         KeyValuePair<char, string>? ParseConfigLine(string line)
         {
-            //bail early if empty
+            // bail early if empty
             if (line == "" || line == null)
                 return null;
-            //split the line into the keychar and the folder name
+            
+            // split the line into the keychar and the folder name
             string[] parts = line.Split(new char[]{ Separator}, 2);
-            //sanity check, if there are not two parts, fail
+            
+            // sanity check, if there are not two parts, fail
             if (parts.Length != 2)
                 return null;
             if (parts[0].Length > 1)
                 return null;
-            //the first(and only) char of the first piece is the keychar
+            
+            // the first(and only) char of the first piece is the keychar
             char keychar = parts[0][0];
-            //the second piece is the foldername
+            // the second piece is the foldername
             string folder = parts[1];
-            //check if foldername is valid for usage
+            
+            // check if foldername is valid for usage
             if (IsNameInvalid(folder))
                 return null;
+            
             return new KeyValuePair<char, string>(keychar, folder);
         }
 
@@ -231,27 +269,30 @@ namespace ImageSorter
         List<KeyValuePair<char, string>> ParseConfigFile(string[] lines)
         {
             List<KeyValuePair<char, string>> configs = new List<KeyValuePair<char, string>>();
-            //go over each line
-            for(int i =0;i< lines.Length;i++)
+            
+            // go over each line
+            for (int i =0;i< lines.Length;i++)
             {
-                //try getting a valid config line
+                // try getting a valid config line
                 KeyValuePair<char, string>? kvp = ParseConfigLine(lines[i]);
-                //if line is valid, add to the config list
-                if(kvp.HasValue)
+                
+                // if line is valid, add to the config list
+                if (kvp.HasValue)
                 {
                     configs.Add(kvp.Value);
                 }
                 else
                 {
-                    //last line is allowed to be invalid (most likely empty)
-                    //anywhere else, return empty list/fail
+                    // last line is allowed to be invalid (most likely empty)
+                    // anywhere else, return empty list/fail
                     if (i != lines.Length - 1)
                     {
                         return new List<KeyValuePair<char, string>>();
                     }
                 }
             }
-            //if not failed yet, return what is collected so far
+            
+            // if not failed yet, return what is collected so far
             return configs;
         }
 
@@ -260,28 +301,31 @@ namespace ImageSorter
         /// </summary>
         /// <param name="folderpath">Folder containing the file</param>
         /// <returns>List of binding KVPs or null on fail</returns>
-        List<KeyValuePair<char,string>> LoadConfigFile(string folderpath)
+        List<KeyValuePair<char, string>> LoadConfigFile(string folderpath)
         {
             List<KeyValuePair<char, string>> configs = new List<KeyValuePair<char, string>>();
-            //get the proper filename and try loading
+            // get the proper filename and try loading
             string filepath = Path.Combine(folderpath, ConfigFileName);
-            //if file's missing, fail
+            string[] filecontents;
+            
+            // if file's missing, fail
             if (!File.Exists(filepath))
                 return null;
-            string[] filecontents;
+            
             try
             {
-                //try reading the file as lines and parsing those
+                // try reading the file as lines and parsing those
                 filecontents = File.ReadAllLines(filepath);
                 configs = ParseConfigFile(filecontents);
-                //if non-empty list is returned, return it
+                
+                // if non-empty list is returned, return it
                 if (configs.Count > 0)
                     return configs;
-                //else fail
+                
+                // else fail
                 return null;
             }
-            //couldn't load, don't care too much why right now, fail
-            catch(Exception ex)
+            catch(Exception ex) // couldn't load, don't care too much why right now, fail
             {
                 return null;
             }
@@ -289,28 +333,31 @@ namespace ImageSorter
 
         bool SaveConfigFile(string folderpath)
         {
-            //if there are no bindings, don't bother and fail
+            // if there are no bindings, don't bother and fail
             if (SubFolders.Count < 1)
                 return false;
+            
             string[] lines = new string[SubFolders.Count];
-            //squish the dictionary
-            KeyValuePair<char,string>[] bindings =SubFolders.ToArray();
-            //go slot per slot
-            for(int i=0;i<bindings.Length;i++)
+            // squish the dictionary
+            KeyValuePair<char, string>[] bindings = SubFolders.ToArray();
+            
+            // go slot per slot
+            for (int i = 0; i < bindings.Length; i++)
             {
-                //each line is the keychar, then ≔, then the subfolder
+                // each line is the keychar, then ≔, then the subfolder
                 lines[i] = bindings[i].Key.ToString() + Separator.ToString() + bindings[i].Value;
             }
-            //attempt to write the config to disk
+            
+            // attempt to write the config to disk
             try
             {
                 File.WriteAllLines(Path.Combine(folderpath, ConfigFileName), lines);
             }
-            //if write fails, so does this function
-            catch(Exception ex)
+            catch(Exception ex) // if write fails, so does this function
             {
                 return false;
             }
+            
             return true;
         }
 
@@ -320,37 +367,39 @@ namespace ImageSorter
         /// <param name="path">Absolute path to the folder.</param>
         void OpenFolder(string path)
         {
-            //Set current working dir
+            // set current working dir
             CurrentDir = new DirectoryInfo(path);
-            //fetch a list of all images
-            List<string> FileNames = GetImageFiles(path);
-            //create and populate a queue to process one item at a time
+            // fetch a list of all images
+            List<string> fileNames = GetImageFiles(path);
+            // create and populate a queue to process one item at a time
             Todo = new LinkedList<string>();
-            foreach(string filepath in FileNames)
+            
+            foreach (string filepath in fileNames)
             {
                 Todo.AddLast(filepath);
             }
-            //set the progress bar
-            FolderProgress.Maximum = FileNames.Count();
+            
+            // set the progress bar
+            FolderProgress.Maximum = fileNames.Count();
             FolderProgress.Value = 0;
-            //refresh the bind list
+            // refresh the bind list
             SubFolders.Clear();
-            //try loading a configuration file from the target folder
+            // try loading a configuration file from the target folder
             List<KeyValuePair<char, string>> configs = LoadConfigFile(path);
-            //if successful, load all keybinds from it
-            if(configs!=null)
+            
+            // if successful, load all keybinds from it
+            if (configs != null)
             {
-                foreach(KeyValuePair<char,string> kvp in configs)
+                foreach (KeyValuePair<char, string> kvp in configs)
                 {
                     LoadKeyBind(path, kvp.Key, kvp.Value);
                 }
             }
-            //else try default config (should be in the application's own folder)
-            //for now there's no way to adjust it except for copying one created for a specific folder
-            else
+            else // try default config in the application's own folder (for now there's no way to adjust it except for copying one created for a specific folder)
             {
                 configs = LoadConfigFile(Path.GetDirectoryName(Application.ExecutablePath));
-                //if successful, load all keybinds from it
+                
+                // if successful, load all keybinds from it
                 if (configs != null)
                 {
                     foreach (KeyValuePair<char, string> kvp in configs)
@@ -358,233 +407,258 @@ namespace ImageSorter
                         LoadKeyBind(path, kvp.Key, kvp.Value);
                     }
                 }
-                //if that fails, load this default hardcoded preset
-                else
+                else // if that fails, load this default hardcoded preset
                 {
                     bool errorcheck = LoadKeyBind(path, ' ', "nsfw");
-                    //if for some reason that fails, inform the user and offer to close the program.
+                    
+                    // if for some reason that fails, inform the user and offer to close the program.
                     if (!errorcheck)
                     {
-                        DialogResult exitrequest = MessageBox.Show("Unable to create default keybind - check if you are able to make changes to the target directory. Would you like to exit the program?", "Folder write error (probably)", MessageBoxButtons.YesNo, MessageBoxIcon.Error);
-                        if(exitrequest == DialogResult.Yes)
+                        DialogResult exitrequest = MessageBox.Show("Unable to create default keybind - check if you are able to make changes to the target directory. "
+                            + "Would you like to exit the program?",
+                            "Folder write error (probably)",
+                            MessageBoxButtons.YesNo,
+                            MessageBoxIcon.Error);
+                        
+                        if (exitrequest == DialogResult.Yes)
                         {
                             this.Close();
                         }
                     }
                 }
             }
-            //reset undo stack
+            
+            // reset undo stack
             UndoStack.Clear();
-            //refresh the pane that shows the bindings 
+            // refresh the pane that shows the bindings 
             UpdateKeyBindList();
         }
 
         bool LoadKeyBind(string workingdir, char key, string target)
         {
-            //create the corresponding folder
+            // create the corresponding folder
             string folderpath = Path.Combine(workingdir, target);
+            
             try
             {
                 Directory.CreateDirectory(folderpath);
             }
-            //usually this only fails if there is a file named like the target exactly, in which case, try a random name
-            catch (Exception ex)
+            catch (Exception ex) // usually this only fails if there is a file named like the target exactly, in which case, try a random name
             {
-                
                 string newrandomstring = Path.GetRandomFileName();
                 
                 try
                 {
-                    Directory.CreateDirectory(Path.Combine(workingdir, target+"_" + newrandomstring));
-
+                    Directory.CreateDirectory(Path.Combine(workingdir, $"{target}_{newrandomstring}"));
                 }
-                //either something else went wrong, or we're astronomically unlucky - display error and give the option to exit
-                catch (Exception ex2)
+                catch (Exception ex2) // either something else went wrong, or we're astronomically unlucky - display error and give the option to exit
                 {
-                    MessageBox.Show("Could not create \""+ target + "_" + newrandomstring + "\" folder for <"+key.ToString()+"> keybind. This keybind will be unavailable. The below information may clarify the cause of the issue:\r\n" + ex2.Message, "We tried", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show($"Could not create \"{target}_{newrandomstring}\" folder for <{key.ToString()}> keybind. This keybind will be unavailable. "
+                        + $"The below information may clarify the cause of the issue:{nl}{ex2.Message}",
+                        "We tried",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
                     return false;
                 }
-                //tell the user the folder had to be renamed...
-                MessageBox.Show("Could not create \"" + target + "\" folder for <" + key.ToString() + "> keybind.\r\nThe program was able to use a fallback name: \"" + target + "_" + newrandomstring + "\"\r\n See if the below information helps clarify the cause of the issue:\r\n" + ex.Message, "We tried", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-
-
+                
+                // tell the user the folder had to be renamed...
+                MessageBox.Show($"Could not create \"{target}\" folder for <{key.ToString()}> keybind.{nl}"
+                    + $"The program was able to use a fallback name: \"{target}_{newrandomstring}\"{nl}"
+                    + $"See if the below information helps clarify the cause of the issue:{nl}{ex.Message}",
+                    "We tried",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
             }
+            
             SubFolders.Add(key, target);
             return true;
         }
-
-
+        
         /// <summary>
         /// Moves a file located at a specified path, triggered by a keypress.
         /// </summary>
         /// <param name="key">Triggering keypress</param>
         /// <param name="path">Path of the file to be moved</param>
         /// <returns>true if the system may advance to the  next file</returns>
-        bool MoveByKey(char key,string path)
+        bool MoveByKey(char key, string path)
         {
-            //get the parent dir
+            // get the parent dir
             string foldername = Path.GetDirectoryName(path);
-            //get the filename, if rename exists, use that instead
-            string filename =NewFileName =="" ? Path.GetFileName(path) : NewFileName;
-            //get the correct target subfolder based on the keypress
-            //check if there's a folder defined for the key and display an error if not
-            if(!SubFolders.ContainsKey(key))
+            // get the filename, if rename exists, use that instead
+            string filename = NewFileName == "" ? Path.GetFileName(path) : NewFileName;
+            
+            // get the correct target subfolder based on the keypress
+            // check if there's a folder defined for the key and display an error if not
+            if (!SubFolders.ContainsKey(key))
             {
-                MessageBox.Show("Missing keybinding for <"+key.ToString()+">", "Keybinding error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                //do not advance as the user may want to enter a correct key or create a new one
+                MessageBox.Show($"Missing keybinding for <{key.ToString()}>", "Keybinding error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                // do not advance as the user may want to enter a correct key or create a new one
                 return false;
             }
+            
             string targetname = SubFolders[key];
-            //create the target path and try moving the file
+            // create the target path and try moving the file
             string completepath = Path.Combine(foldername, targetname, filename);
+            
             try
             {
-                //if there's a file with the same name in the target folder (for example due to the rename function).
-                //try to create an automatic rename and offer it to the user
-                if(File.Exists(completepath))
+                // if there's a file with the same name in the target folder (for example due to the rename function).
+                // try to create an automatic rename and offer it to the user
+                if (File.Exists(completepath))
                 {
                     string replacementname = GetFreeFileName(filename, Path.GetDirectoryName(completepath));
-                    DialogResult replacefile = MessageBox.Show("File \""+filename+"\" already exists in folder. Do you want to use this name instead?\r\n"+replacementname, "File error", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-                    //if user accepts, proceed with the move as normal
-                    if (replacefile== DialogResult.Yes)
+                    DialogResult replacefile = MessageBox.Show($"File \"{filename}\" already exists in folder. "
+                        + $"Do you want to use this name instead?{nl}{replacementname}",
+                        "File error",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+                    
+                    // if user accepts, proceed with the move as normal
+                    if (replacefile == DialogResult.Yes)
                     {
-                        //build the new path
+                        // build the new path
                         completepath = Path.Combine(foldername, targetname, replacementname);
+                        
                         try
                         {
-
                             File.Move(path, completepath);
                         }
-                        //show an error message in case of failure
-                        catch (Exception ex)
+                        catch (Exception ex) // show an error message in case of failure
                         {
-                            MessageBox.Show("Failed to move file.\r\n" + ex.Message, "File error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            //allow the system to advance in case of broken files
+                            MessageBox.Show($"Failed to move file.{nl}{ex.Message}", "File error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            // allow the system to advance in case of broken files
                             return true;
                         }
                     }
-                    //else cancel the action
-                    else
+                    else // cancel the action
                     {
 
                         return false;
                     }
                 }
-                //if there is no file conflict, simply try to move the file
-                else
+                else // if there is no file conflict, simply try to move the file
                 {
                     File.Move(path, completepath);
                 }
             }
-            //show an error message in case of failure
-            catch(Exception ex)
+            catch(Exception ex) // show an error message in case of failure
             {
-                MessageBox.Show("Failed to move file.\r\n"+ex.Message, "File error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                //allow the system to advance in case of broken files
+                MessageBox.Show($"Failed to move file.{nl}{ex.Message}", "File error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                // allow the system to advance in case of broken files
                 return true;
             }
-            //if nothing went wrong and the file was moved,
-            //add an undo entry
-            UndoStack.Push(new Tuple<string,string>(path, completepath));
-            //return success - proceed to next image
+            // if nothing went wrong and the file was moved, add an undo entry
+            UndoStack.Push(new Tuple<string, string>(path, completepath));
+            // return success - proceed to next image
             return true;
         }
+        
         /// <summary>
         /// Create a new keybinding/folder combination with user prompt.
         /// </summary>
         /// <param name="keypress">The target keybinding.</param>
         bool CreateNewKey(char keypress)
         {
-            //initialise the form
+            // initialise the form
             CreateKeyBinding prompt = new CreateKeyBinding
             {
                 Key = keypress,
                 RootFolder = CurrentDir.FullName
             };
-            //show the form
+            // show the form
             prompt.ShowDialog();
-            //if folder was selected successfully, add the binding
-            if(prompt.DialogResult== DialogResult.OK)
+            
+            // if folder was selected successfully, add the binding
+            if (prompt.DialogResult== DialogResult.OK)
             {
                 SubFolders.Add(keypress, prompt.Folder);
             }
-            //user cancelled the operation somehow
-            else
+            else // user cancelled the operation somehow
             {
                 return false;
             }
-            //refresh the keybind display
+            
+            // refresh the keybind display
             UpdateKeyBindList();
-            //write the config
+            // write the config
             SaveConfigFile(CurrentDir.FullName);
             return true;
         }
        
         private void MainFrm_KeyPress(object sender, KeyPressEventArgs e)
         {
-            //if there's no queue initialised or
+            // if there's no queue initialised or
             if (Todo == null)
                 return;
-            //if there's nothing in the queue, do nothing
-          //  if (Todo.Count() < 1)
-           //     return;
-            //if keypress is not in the bindings list, check the lock setting
+            
+            // if there's nothing in the queue, do nothing
+            // if (Todo.Count() < 1)
+            //     return;
+            
+            // if keypress is not in the bindings list, check the lock setting
             if (!SubFolders.ContainsKey(e.KeyChar))
             {
-                //if locked, display a message informing the user about the lock and cancel
-                if(lockKeysToolStripMenuItem.Checked)
+                // if locked, display a message informing the user about the lock and cancel
+                if (lockKeysToolStripMenuItem.Checked)
                 {
-                    MessageBox.Show("There is no folder registered for <" + e.KeyChar.ToString() + ">. New keybindings may only be created when the keys are unlocked, press Ctrl+L to toggle.", "Unrecognised key", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show($"There is no folder registered for <{e.KeyChar.ToString()}>. " 
+                        + $"New keybindings may only be created when the keys are unlocked, press Ctrl+L to toggle.",
+                        "Unrecognised key",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
                     return;
                 }
-                //else try to create a new binding
-                else
+                else // try to create a new binding
                 {
-                    //if key creation is cancelled, do nothing and return.
-                    if(!CreateNewKey(e.KeyChar))
+                    // if key creation is cancelled, do nothing and return.
+                    // otherwise proceed further and attempt the move
+                    if (!CreateNewKey(e.KeyChar))
                     {
                         return;
                     }
-                    //otherwise proceed further and attempt the move
                 }
             }
-            //move the file according to the key pressed
-            if(MoveByKey(e.KeyChar, CurrentPath))
+            
+            // move the file according to the key pressed
+            if (MoveByKey(e.KeyChar, CurrentPath))
             {
-                //get to the next item
+                // get to the next item
                 Advance();
             }
         }
 
         private void lockKeysToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            //yeah, this is stupid, replace it with actual image buttons
+            // yeah, this is stupid, replace it with actual image buttons
             lockKeysToolStripMenuItem.Text = lockKeysToolStripMenuItem.Checked ? "Unlock keybinds" : "Lock keybinds";
         }
 
         private void KeyBindList_DoubleClick(object sender, EventArgs e)
         {
-
+            //TODO: what is this?
         }
 
         private void undoToolStripMenuItem_Click(object sender, EventArgs e)
         {
             Undo();
         }
-        //align the progress label to the progress bar on resize
+        
+        // align the progress label to the progress bar on resize
         private void MainFrm_SizeChanged(object sender, EventArgs e)
         {
             progresslabel.Location = FolderProgress.Location;
             progresslabel.Size = FolderProgress.Size;
         }
-        //show rename dialog and set the rename target 
+        
+        // show rename dialog and set the rename target 
         private void renameOnMoveToolStripMenuItem_Click(object sender, EventArgs e)
         {
             RenameFile prompt = new RenameFile();
-            //get extension of current file
+            // get extension of current file
             prompt.FileExtension = Path.GetExtension(CurrentPath);
             DialogResult result = prompt.ShowDialog();
-            if(result== DialogResult.OK)
+            
+            if (result == DialogResult.OK)
             {
                 NewFileName = prompt.FileName;
             }
