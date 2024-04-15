@@ -663,5 +663,11 @@ namespace ImageSorter
                 NewFileName = prompt.FileName;
             }
         }
+
+        private void refresh_Click(object sender, EventArgs e)
+        {
+            OpenFolder(CurrentDir.FullName);
+            Advance();
+        }
     }
 }
